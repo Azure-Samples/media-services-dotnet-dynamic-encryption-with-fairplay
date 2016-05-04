@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("FairPlay")]
+[assembly: AssemblyTitle("DynamicEncryptionWithDRM")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("FairPlay")]
+[assembly: AssemblyProduct("DynamicEncryptionWithDRM")]
 [assembly: AssemblyCopyright("Copyright ©  2016")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
@@ -20,7 +20,7 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 
 // The following GUID is for the ID of the typelib if this project is exposed to COM
-[assembly: Guid("979cea5c-42e1-432f-a772-84552e17e31a")]
+[assembly: Guid("900415ca-cec5-48b0-9f5e-ede9445ce2e4")]
 
 // Version information for an assembly consists of the following four values:
 //

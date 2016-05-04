@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
@@ -8,11 +7,10 @@ using System.Threading;
 using Microsoft.WindowsAzure.MediaServices.Client;
 using Microsoft.WindowsAzure.MediaServices.Client.ContentKeyAuthorization;
 using Microsoft.WindowsAzure.MediaServices.Client.DynamicEncryption;
-using Microsoft.WindowsAzure.MediaServices.Client.FairPlay;
+using Microsoft.WindowsAzure.MediaServices.Client.Widevine;
 using Newtonsoft.Json;
-using System.Security.Cryptography.X509Certificates;
 
-namespace DynamicEncryptionWithFairPlay
+namespace DynamicEncryptionWithDRM
 {
     class Program
     {
@@ -55,9 +53,9 @@ namespace DynamicEncryptionWithFairPlay
             IAsset encodedAsset = EncodeToAdaptiveBitrateMP4Set(asset);
             Console.WriteLine("Encoded asset: {0}", encodedAsset.Id);
 
-            IContentKey key = CreateCommonCBCTypeContentKey(encodedAsset);
+            IContentKey key = CreateCommonTypeContentKey(encodedAsset);
             Console.WriteLine("Created key {0} for the asset {1} ", key.Id, encodedAsset.Id);
-            Console.WriteLine("FairPlay License Key delivery URL: {0}", key.GetKeyDeliveryUrl(ContentKeyDeliveryType.FairPlay));
+            Console.WriteLine("PlayReady License Key delivery URL: {0}", key.GetKeyDeliveryUrl(ContentKeyDeliveryType.PlayReadyLicense));
             Console.WriteLine();
 
             if (tokenRestriction)
@@ -83,17 +81,20 @@ namespace DynamicEncryptionWithFairPlay
                 // Note, you need to pass the key id Guid because we specified 
                 // TokenClaim.ContentKeyIdentifierClaim in during the creation of TokenRestrictionTemplate.
                 Guid rawkey = EncryptionUtils.GetKeyIdAsGuid(key.Id);
-                string testToken = TokenRestrictionTemplateSerializer.GenerateTestToken(tokenTemplate, null, rawkey,
-                                                                        DateTime.UtcNow.AddDays(365));
+                string testToken = TokenRestrictionTemplateSerializer.GenerateTestToken(tokenTemplate, null, rawkey, DateTime.UtcNow.AddDays(365));
                 Console.WriteLine("The authorization token is:\nBearer {0}", testToken);
                 Console.WriteLine();
             }
 
+            // You can use the http://amsplayer.azurewebsites.net/azuremediaplayer.html player to test streams.
+            // Note that DASH works on IE 11 (via PlayReady), Edge (via PlayReady), Chrome (via Widevine).
+             
             string url = GetStreamingOriginLocator(encodedAsset);
-            Console.WriteLine("Encrypted HLS URL: {0}/manifest(format=m3u8-aapl)", url);
+            Console.WriteLine("Encrypted DASH URL: {0}/manifest(format=mpd-time-csf)", url);
 
             Console.ReadLine();
         }
+
 
         static public IAsset UploadFileAndCreateAsset(string singleFilePath)
         {
@@ -128,19 +129,22 @@ namespace DynamicEncryptionWithFairPlay
             return inputAsset;
         }
 
+
         static public IAsset EncodeToAdaptiveBitrateMP4Set(IAsset inputAsset)
         {
-            var encodingPreset = "H264 Multiple Bitrate 720p";
+            var encodingPreset = "H264 Adaptive Bitrate MP4 Set 720p";
 
             IJob job = _context.Jobs.Create(String.Format("Encoding into Mp4 {0} to {1}",
                                     inputAsset.Name,
                                     encodingPreset));
 
             var mediaProcessors =
-                _context.MediaProcessors.Where(p => p.Name.Contains("Media Encoder Standard")).ToList();
+                _context.MediaProcessors.Where(p => p.Name.Contains("Media Encoder")).ToList();
 
             var latestMediaProcessor =
                 mediaProcessors.OrderBy(mp => new Version(mp.Version)).LastOrDefault();
+
+
 
             ITask encodeTask = job.Tasks.AddNew("Encoding", latestMediaProcessor, encodingPreset, TaskOptions.None);
             encodeTask.InputAssets.Add(inputAsset);
@@ -153,9 +157,10 @@ namespace DynamicEncryptionWithFairPlay
             return job.OutputMediaAssets[0];
         }
 
-        static public IContentKey CreateCommonCBCTypeContentKey(IAsset asset)
+
+        static public IContentKey CreateCommonTypeContentKey(IAsset asset)
         {
-            // Create HLS SAMPLE AES encryption content key
+            // Create envelope encryption content key
             Guid keyId = Guid.NewGuid();
             byte[] contentKey = GetRandomBuffer(16);
 
@@ -163,7 +168,7 @@ namespace DynamicEncryptionWithFairPlay
                                     keyId,
                                     contentKey,
                                     "ContentKey",
-                                    ContentKeyType.CommonEncryptionCbcs);
+                                    ContentKeyType.CommonEncryption);
 
             // Associate the key with the asset.
             asset.ContentKeys.Add(key);
@@ -171,40 +176,45 @@ namespace DynamicEncryptionWithFairPlay
             return key;
         }
 
-
         static public void AddOpenAuthorizationPolicy(IContentKey contentKey)
         {
+
             // Create ContentKeyAuthorizationPolicy with Open restrictions 
             // and create authorization policy          
 
             List<ContentKeyAuthorizationPolicyRestriction> restrictions = new List<ContentKeyAuthorizationPolicyRestriction>
-                    {
-                        new ContentKeyAuthorizationPolicyRestriction
-                        {
-                            Name = "Open",
-                            KeyRestrictionType = (int)ContentKeyRestrictionType.Open,
-                            Requirements = null
-                        }
-                    };
+            {
+                new ContentKeyAuthorizationPolicyRestriction
+                {
+                    Name = "Open",
+                    KeyRestrictionType = (int)ContentKeyRestrictionType.Open,
+                    Requirements = null
+                }
+            };
 
+            // Configure PlayReady and Widevine license templates.
+            string PlayReadyLicenseTemplate = ConfigurePlayReadyLicenseTemplate();
 
-            // Configure FairPlay policy option.
-            string FairPlayConfiguration = ConfigureFairPlayPolicyOptions();
+            string WidevineLicenseTemplate = ConfigureWidevineLicenseTemplate();
 
-            IContentKeyAuthorizationPolicyOption FairPlayPolicy =
+            IContentKeyAuthorizationPolicyOption PlayReadyPolicy =
                 _context.ContentKeyAuthorizationPolicyOptions.Create("",
-                ContentKeyDeliveryType.FairPlay,
-                restrictions,
-                FairPlayConfiguration);
+                    ContentKeyDeliveryType.PlayReadyLicense,
+                        restrictions, PlayReadyLicenseTemplate);
 
+            IContentKeyAuthorizationPolicyOption WidevinePolicy =
+                _context.ContentKeyAuthorizationPolicyOptions.Create("", 
+                    ContentKeyDeliveryType.Widevine, 
+                    restrictions, WidevineLicenseTemplate);
 
             IContentKeyAuthorizationPolicy contentKeyAuthorizationPolicy = _context.
                         ContentKeyAuthorizationPolicies.
-                        CreateAsync("Deliver Common CBC Content Key with no restrictions").
+                        CreateAsync("Deliver Common Content Key with no restrictions").
                         Result;
 
-            contentKeyAuthorizationPolicy.Options.Add(FairPlayPolicy);
 
+            contentKeyAuthorizationPolicy.Options.Add(PlayReadyPolicy);
+            contentKeyAuthorizationPolicy.Options.Add(WidevinePolicy);
             // Associate the content key authorization policy with the content key.
             contentKey.AuthorizationPolicyId = contentKeyAuthorizationPolicy.Id;
             contentKey = contentKey.UpdateAsync().Result;
@@ -215,78 +225,43 @@ namespace DynamicEncryptionWithFairPlay
             string tokenTemplateString = GenerateTokenRequirements();
 
             List<ContentKeyAuthorizationPolicyRestriction> restrictions = new List<ContentKeyAuthorizationPolicyRestriction>
-                    {
-                        new ContentKeyAuthorizationPolicyRestriction
-                        {
-                            Name = "Token Authorization Policy",
-                            KeyRestrictionType = (int)ContentKeyRestrictionType.TokenRestricted,
-                            Requirements = tokenTemplateString,
-                        }
-                    };
+            {
+                new ContentKeyAuthorizationPolicyRestriction
+                {
+                    Name = "Token Authorization Policy",
+                    KeyRestrictionType = (int)ContentKeyRestrictionType.TokenRestricted,
+                    Requirements = tokenTemplateString,
+                }
+            };
 
-            // Configure FairPlay policy option.
-            string FairPlayConfiguration = ConfigureFairPlayPolicyOptions();
+            // Configure PlayReady and Widevine license templates.
+            string PlayReadyLicenseTemplate = ConfigurePlayReadyLicenseTemplate();
 
+            string WidevineLicenseTemplate = ConfigureWidevineLicenseTemplate();
 
-            IContentKeyAuthorizationPolicyOption FairPlayPolicy =
+            IContentKeyAuthorizationPolicyOption PlayReadyPolicy =
                 _context.ContentKeyAuthorizationPolicyOptions.Create("Token option",
-                       ContentKeyDeliveryType.FairPlay,
-                       restrictions,
-                       FairPlayConfiguration);
+                    ContentKeyDeliveryType.PlayReadyLicense,
+                        restrictions, PlayReadyLicenseTemplate);
+
+            IContentKeyAuthorizationPolicyOption WidevinePolicy =
+                _context.ContentKeyAuthorizationPolicyOptions.Create("Token option",
+                    ContentKeyDeliveryType.Widevine,
+                        restrictions, WidevineLicenseTemplate);
 
             IContentKeyAuthorizationPolicy contentKeyAuthorizationPolicy = _context.
                         ContentKeyAuthorizationPolicies.
-                        CreateAsync("Deliver Common CBC Content Key with token restrictions").
+                        CreateAsync("Deliver Common Content Key with token restrictions").
                         Result;
 
-            contentKeyAuthorizationPolicy.Options.Add(FairPlayPolicy);
+            contentKeyAuthorizationPolicy.Options.Add(PlayReadyPolicy);
+            contentKeyAuthorizationPolicy.Options.Add(WidevinePolicy);
 
             // Associate the content key authorization policy with the content key
             contentKey.AuthorizationPolicyId = contentKeyAuthorizationPolicy.Id;
             contentKey = contentKey.UpdateAsync().Result;
 
             return tokenTemplateString;
-        }
-
-        private static string ConfigureFairPlayPolicyOptions()
-        {
-            // For testing you can provide all zeroes for ASK bytes together with the cert from Apple FPS SDK. 
-            // However, for production you must use a real ASK from Apple bound to a real prod certificate.
-            byte[] askBytes = Guid.NewGuid().ToByteArray();
-            var askId = Guid.NewGuid();
-            // Key delivery retrieves askKey by askId and uses this key to generate the response.
-            IContentKey askKey = _context.ContentKeys.Create(
-                                    askId,
-                                    askBytes,
-                                    "askKey",
-                                    ContentKeyType.FairPlayASk);
-
-            //Customer password for creating the .pfx file.
-            string pfxPassword = "<customer password for creating the .pfx file>";
-            // Key delivery retrieves pfxPasswordKey by pfxPasswordId and uses this key to generate the response.
-            var pfxPasswordId = Guid.NewGuid();
-            byte[] pfxPasswordBytes = System.Text.Encoding.UTF8.GetBytes(pfxPassword);
-            IContentKey pfxPasswordKey = _context.ContentKeys.Create(
-                                    pfxPasswordId,
-                                    pfxPasswordBytes,
-                                    "pfxPasswordKey",
-                                    ContentKeyType.FairPlayPfxPassword);
-
-            // iv - 16 bytes random value, must match the iv in the asset delivery policy.
-            byte[] iv = Guid.NewGuid().ToByteArray();
-
-            //Specify the .pfx file created by the customer.
-            var appCert = new X509Certificate2("path to the .pfx file created by the customer", pfxPassword, X509KeyStorageFlags.Exportable);
-
-            string FairPlayConfiguration =
-                Microsoft.WindowsAzure.MediaServices.Client.FairPlay.FairPlayConfiguration.CreateSerializedFairPlayOptionConfiguration(
-                    appCert,
-                    pfxPassword,
-                    pfxPasswordId,
-                    askId,
-                    iv);
-
-            return FairPlayConfiguration;
         }
 
         static private string GenerateTokenRequirements()
@@ -302,35 +277,115 @@ namespace DynamicEncryptionWithFairPlay
             return TokenRestrictionTemplateSerializer.Serialize(template);
         }
 
+        static private string ConfigurePlayReadyLicenseTemplate()
+        {
+            // The following code configures PlayReady License Template using .NET classes
+            // and returns the XML string.
+
+            //The PlayReadyLicenseResponseTemplate class represents the template for the response sent back to the end user. 
+            //It contains a field for a custom data string between the license server and the application 
+            //(may be useful for custom app logic) as well as a list of one or more license templates.
+            PlayReadyLicenseResponseTemplate responseTemplate = new PlayReadyLicenseResponseTemplate();
+
+            // The PlayReadyLicenseTemplate class represents a license template for creating PlayReady licenses
+            // to be returned to the end users. 
+            //It contains the data on the content key in the license and any rights or restrictions to be 
+            //enforced by the PlayReady DRM runtime when using the content key.
+            PlayReadyLicenseTemplate licenseTemplate = new PlayReadyLicenseTemplate();
+            //Configure whether the license is persistent (saved in persistent storage on the client) 
+            //or non-persistent (only held in memory while the player is using the license).  
+            licenseTemplate.LicenseType = PlayReadyLicenseType.Nonpersistent;
+
+            // AllowTestDevices controls whether test devices can use the license or not.  
+            // If true, the MinimumSecurityLevel property of the license
+            // is set to 150.  If false (the default), the MinimumSecurityLevel property of the license is set to 2000.
+            licenseTemplate.AllowTestDevices = true;
+
+            // You can also configure the Play Right in the PlayReady license by using the PlayReadyPlayRight class. 
+            // It grants the user the ability to playback the content subject to the zero or more restrictions 
+            // configured in the license and on the PlayRight itself (for playback specific policy). 
+            // Much of the policy on the PlayRight has to do with output restrictions 
+            // which control the types of outputs that the content can be played over and 
+            // any restrictions that must be put in place when using a given output.
+            // For example, if the DigitalVideoOnlyContentRestriction is enabled, 
+            //then the DRM runtime will only allow the video to be displayed over digital outputs 
+            //(analog video outputs won’t be allowed to pass the content).
+
+            //IMPORTANT: These types of restrictions can be very powerful but can also affect the consumer experience. 
+            // If the output protections are configured too restrictive, 
+            // the content might be unplayable on some clients. For more information, see the PlayReady Compliance Rules document.
+
+            // For example:
+            //licenseTemplate.PlayRight.AgcAndColorStripeRestriction = new AgcAndColorStripeRestriction(1);
+
+            responseTemplate.LicenseTemplates.Add(licenseTemplate);
+
+            return MediaServicesLicenseTemplateSerializer.Serialize(responseTemplate);
+        }
+
+
+        private static string ConfigureWidevineLicenseTemplate()
+        {
+            var template = new WidevineMessage
+            {
+                allowed_track_types = AllowedTrackTypes.SD_HD,
+                content_key_specs = new[]
+                {
+                    new ContentKeySpecs
+                    {
+                        required_output_protection = new RequiredOutputProtection { hdcp = Hdcp.HDCP_NONE},
+                        security_level = 1,
+                        track_type = "SD"
+                    }
+                },
+                policy_overrides = new
+                {
+                    can_play = true,
+                    can_persist = true,
+                    can_renew = false
+                }
+            };
+
+            string configuration = JsonConvert.SerializeObject(template);
+            return configuration;
+        }
+
         static public void CreateAssetDeliveryPolicy(IAsset asset, IContentKey key)
         {
-            var kdPolicy = _context.ContentKeyAuthorizationPolicies.Where(p => p.Id == key.AuthorizationPolicyId).Single();
+            // Get the PlayReady license service URL.
+            Uri acquisitionUrl = key.GetKeyDeliveryUrl(ContentKeyDeliveryType.PlayReadyLicense);
 
-            var kdOption = kdPolicy.Options.Single(o => o.KeyDeliveryType == ContentKeyDeliveryType.FairPlay);
+            // GetKeyDeliveryUrl for Widevine attaches the KID to the URL.
+            // For example: https://amsaccount1.keydelivery.mediaservices.windows.net/Widevine/?KID=268a6dcb-18c8-4648-8c95-f46429e4927c.  
+            // The WidevineBaseLicenseAcquisitionUrl (used below) also tells Dynamaic Encryption 
+            // to append /? KID =< keyId > to the end of the url when creating the manifest.
+            // As a result Widevine license aquisition URL will have KID appended twice, 
+            // so we need to remove the KID that in the URL when we call GetKeyDeliveryUrl.
 
-            FairPlayConfiguration configFP = JsonConvert.DeserializeObject<FairPlayConfiguration>(kdOption.KeyDeliveryConfiguration);
-
-            // Get the FairPlay license service URL.
-            Uri acquisitionUrl = key.GetKeyDeliveryUrl(ContentKeyDeliveryType.FairPlay);
+            Uri widevineUrl = key.GetKeyDeliveryUrl(ContentKeyDeliveryType.Widevine);
+            UriBuilder uriBuilder = new UriBuilder(widevineUrl);
+            uriBuilder.Query = String.Empty;
+            widevineUrl = uriBuilder.Uri;
 
             Dictionary<AssetDeliveryPolicyConfigurationKey, string> assetDeliveryPolicyConfiguration =
                 new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
                 {
-                    {AssetDeliveryPolicyConfigurationKey.FairPlayLicenseAcquisitionUrl, acquisitionUrl.ToString().Replace("https://", "skd://")},
-                    {AssetDeliveryPolicyConfigurationKey.CommonEncryptionIVForCbcs, configFP.ContentEncryptionIV}
+                    {AssetDeliveryPolicyConfigurationKey.PlayReadyLicenseAcquisitionUrl, acquisitionUrl.ToString()},
+                    {AssetDeliveryPolicyConfigurationKey.WidevineBaseLicenseAcquisitionUrl, widevineUrl.ToString()}
+
                 };
 
             var assetDeliveryPolicy = _context.AssetDeliveryPolicies.Create(
                     "AssetDeliveryPolicy",
-                AssetDeliveryPolicyType.DynamicCommonEncryptionCbcs,
-                AssetDeliveryProtocol.HLS,
+                AssetDeliveryPolicyType.DynamicCommonEncryption,
+                AssetDeliveryProtocol.Dash,
                 assetDeliveryPolicyConfiguration);
+
 
             // Add AssetDelivery Policy to the asset
             asset.DeliveryPolicies.Add(assetDeliveryPolicy);
 
         }
-
 
         /// <summary>
         /// Gets the streaming origin locator.
