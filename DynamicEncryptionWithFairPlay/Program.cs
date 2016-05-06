@@ -312,7 +312,13 @@ namespace DynamicEncryptionWithFairPlay
 
             // Get the FairPlay license service URL.
             Uri acquisitionUrl = key.GetKeyDeliveryUrl(ContentKeyDeliveryType.FairPlay);
-
+            
+            // The reason the below code replaces "https://" with "skd://" is because
+            // in the IOS player sample code which you obtained in Apple developer account, 
+            // the player only recognizes a Key URL that starts with skd://. 
+            // However, if you are using a customized player, 
+            // you can choose whatever protocol you want. 
+            // For example, "https". 
             Dictionary<AssetDeliveryPolicyConfigurationKey, string> assetDeliveryPolicyConfiguration =
                 new Dictionary<AssetDeliveryPolicyConfigurationKey, string>
                 {
