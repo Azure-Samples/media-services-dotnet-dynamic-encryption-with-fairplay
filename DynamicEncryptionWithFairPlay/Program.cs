@@ -1,5 +1,4 @@
-﻿
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
@@ -17,10 +16,10 @@ namespace DynamicEncryptionWithFairPlay
     class Program
     {
         // Read values from the App.config file.
-        private static readonly string _mediaServicesAccountName =
-            ConfigurationManager.AppSettings["MediaServicesAccountName"];
-        private static readonly string _mediaServicesAccountKey =
-            ConfigurationManager.AppSettings["MediaServicesAccountKey"];
+        static string _AADTenantDomain =
+            ConfigurationManager.AppSettings["AMSAADTenantDomain"];
+        static string _RESTAPIEndpoint =
+            ConfigurationManager.AppSettings["AMSRESTAPIEndpoint"];
 
         private static readonly Uri _sampleIssuer =
             new Uri(ConfigurationManager.AppSettings["Issuer"]);
@@ -29,7 +28,6 @@ namespace DynamicEncryptionWithFairPlay
 
         // Field for service context.
         private static CloudMediaContext _context = null;
-        private static MediaServicesCredentials _cachedCredentials = null;
 
         private static readonly string _mediaFiles =
             Path.GetFullPath(@"../..\Media");
@@ -39,12 +37,10 @@ namespace DynamicEncryptionWithFairPlay
 
         static void Main(string[] args)
         {
-            // Create and cache the Media Services credentials in a static class variable.
-            _cachedCredentials = new MediaServicesCredentials(
-                            _mediaServicesAccountName,
-                            _mediaServicesAccountKey);
-            // Used the cached credentials to create CloudMediaContext.
-            _context = new CloudMediaContext(_cachedCredentials);
+            AzureAdTokenCredentials tokenCredentials = new AzureAdTokenCredentials(_AADTenantDomain, AzureEnvironments.AzureCloudEnvironment);
+            AzureAdTokenProvider tokenProvider = new AzureAdTokenProvider(tokenCredentials);
+
+            _context = new CloudMediaContext(new Uri(_RESTAPIEndpoint), tokenProvider);
 
             bool tokenRestriction = false;
             string tokenTemplateString = null;
