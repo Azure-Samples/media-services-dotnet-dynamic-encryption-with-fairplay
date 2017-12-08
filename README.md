@@ -16,8 +16,7 @@ For detailed description of this sample, see [this](https://azure.microsoft.com/
 
 To run this sample you will need:
 
-- Visual Studio 2013 or 2015
-- An Internet connection
+- Visual Studio  
 - An Azure subscription
 - Latest Azure Media Services .NET SDK (which will be installed when you re-build the project).
 
@@ -28,9 +27,11 @@ To run this sample you will need:
 Update the appSettings section of the app.config file with appropriate values. For more information, see [this](https://docs.microsoft.com/azure/media-services/media-services-use-aad-auth-to-access-ams-api) topic.
 
 	<appSettings>
-		<add key="AMSAADTenantDomain" value="AADTenantDomain" />
-		<add key="AMSRESTAPIEndpoint" value="RESTAPIEndpoint" />
-		
+		<add key="AMSAADTenantDomain" value="tenant"/>
+		<add key="AMSRESTAPIEndpoint" value="endpoint"/>
+		<add key="AMSClientId" value="id"/>
+		<add key="AMSClientSecret" value="secret"/>
+
 		<add key="Issuer" value="http://testacs.com" />
 		<add key="Audience" value="urn:test" />
 	</appSettings>
