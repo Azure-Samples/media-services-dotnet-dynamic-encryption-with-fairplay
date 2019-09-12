@@ -1,7 +1,11 @@
 ---
-services: media-services
-platforms: dotnet
-author: Juliako
+page_type: sample
+languages:
+- csharp
+products:
+- azure
+description: "Azure Media Services enables your to dynamically encrypt your HTTP Live Streaming (HLS) content using Apple FairPlay."
+urlFragment: media-services-dotnet-dynamic-encryption-with-fairplay
 ---
 
 # Use Azure Media Services to Stream your HLS content Protected with Apple FairPlay
