@@ -8,7 +8,7 @@ description: "Azure Media Services enables your to dynamically encrypt your HTTP
 urlFragment: media-services-dotnet-dynamic-encryption-with-fairplay
 ---
 
-# Use Azure Media Services to Stream your HLS content Protected with Apple FairPlay
+# Stream your HLS content Protected with Apple FairPlay using Azure Media Services v2 
 
 Azure Media Services enables your to dynamically encrypt your HTTP Live Streaming (HLS) content using Apple FairPlay. When encrypting with FairPlay, individual video and audio samples are encrypted using the AES-128 CBC mode. FairPlay Streaming (FPS) is integrated into the device operating systems, with native support on iOS and Apple TV. Safari on OS X enables FPS using Encrypted Media Extensions (EME) interface support.
 
